@@ -4,8 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Audio Splitter to MP3</title>
-    <!-- הוסף את הספרייה lame.min.js -->
-    <script src="lame.min.js"></script>
+    <script src="lame.min.js"></script> <!-- ודא שקובץ זה זמין -->
 </head>
 <body>
     <h1>פיצול קובץ אודיו ל-MP3</h1>
@@ -58,23 +57,30 @@
                     source.start(0, start, end - start);
 
                     offlineContext.oncomplete = async (e) => {
-                        console.log(`חלק ${i + 1} הסתיים בהצלחה.`);
+                        console.log(`חלק ${i + 1} הסתיים בהצלחה. המרתו ל-WAV...`);
                         const wavBlob = await audioBufferToWavBlob(e.renderedBuffer);
-                        const mp3Blob = await convertWavToMp3(wavBlob);
-                        const url = URL.createObjectURL(mp3Blob);
+                        console.log(`חלק ${i + 1} הומר ל-WAV בהצלחה. המרתו ל-MP3...`);
+                        
+                        try {
+                            const mp3Blob = await convertWavToMp3(wavBlob);
+                            console.log(`חלק ${i + 1} הומר ל-MP3 בהצלחה.`);
+                            const url = URL.createObjectURL(mp3Blob);
 
-                        const audioElement = document.createElement('audio');
-                        audioElement.controls = true;
-                        audioElement.src = url;
+                            const audioElement = document.createElement('audio');
+                            audioElement.controls = true;
+                            audioElement.src = url;
 
-                        const downloadLink = document.createElement('a');
-                        downloadLink.href = url;
-                        downloadLink.download = `audio_segment_${i + 1}.mp3`;
-                        downloadLink.innerText = `הורד חלק ${i + 1}`;
+                            const downloadLink = document.createElement('a');
+                            downloadLink.href = url;
+                            downloadLink.download = `audio_segment_${i + 1}.mp3`;
+                            downloadLink.innerText = `הורד חלק ${i + 1}`;
 
-                        resultsContainer.appendChild(audioElement);
-                        resultsContainer.appendChild(downloadLink);
-                        resultsContainer.appendChild(document.createElement('br'));
+                            resultsContainer.appendChild(audioElement);
+                            resultsContainer.appendChild(downloadLink);
+                            resultsContainer.appendChild(document.createElement('br'));
+                        } catch (mp3Error) {
+                            console.error(`שגיאה בהמרת חלק ${i + 1} ל-MP3:`, mp3Error);
+                        }
                     };
 
                     await offlineContext.startRendering();
@@ -86,7 +92,6 @@
         }
 
         async function audioBufferToWavBlob(buffer) {
-            // פונקציה להמרת AudioBuffer ל-BLOB בפורמט WAV
             const numOfChannels = buffer.numberOfChannels;
             const sampleRate = buffer.sampleRate;
             const length = buffer.length * numOfChannels * 2 + 44;
@@ -130,6 +135,7 @@
             const mp3encoder = new lamejs.Mp3Encoder(1, 44100, 128);
             const mp3Data = [];
             let sampleBlockSize = 1152;
+
             for (let i = 0; i < wav.length; i += sampleBlockSize) {
                 const sampleChunk = wav.subarray(i, i + sampleBlockSize);
                 const mp3buf = mp3encoder.encodeBuffer(sampleChunk);
@@ -137,10 +143,12 @@
                     mp3Data.push(new Int8Array(mp3buf));
                 }
             }
+
             const mp3buf = mp3encoder.flush();
             if (mp3buf.length > 0) {
                 mp3Data.push(new Int8Array(mp3buf));
             }
+
             return new Blob(mp3Data, { type: 'audio/mp3' });
         }
     </script>
