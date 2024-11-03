@@ -1,85 +1,57 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MP3 Splitter</title>
-    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+    <title>פיצול קובץ לפי גודל</title>
 </head>
 <body>
-    <h1>פיצול קובץ MP3</h1>
-    <input type="file" id="audioFile" accept=".mp3">
-    <label for="segments">מספר חלקים:</label>
-    <input type="number" id="segments" value="2" min="1">
-    <button onclick="splitMp3()">פצל קובץ</button>
-
+    <h1>פיצול קובץ לפי גודל (במגה-בייט)</h1>
+    <input type="file" id="fileInput" accept="audio/*">
+    <button onclick="splitFile()">פצל קובץ</button>
     <div id="results"></div>
 
     <script>
-        const { createFFmpeg, fetchFile } = FFmpeg;
-        const ffmpeg = createFFmpeg({ log: true });
+        const chunkSizeMB = 2; // גודל כל חלק במגה-בייט
+        const chunkSize = chunkSizeMB * 1024 * 1024; // המרה לבתים
 
-        async function splitMp3() {
-            const fileInput = document.getElementById('audioFile').files[0];
-            const segments = parseInt(document.getElementById('segments').value);
+        function splitFile() {
+            const fileInput = document.getElementById('fileInput').files[0];
             const resultsContainer = document.getElementById('results');
             resultsContainer.innerHTML = '';
 
-            if (!fileInput || segments < 1) {
-                alert("אנא בחר קובץ MP3 והכנס מספר חלקים חוקי.");
+            if (!fileInput) {
+                alert("אנא בחר קובץ לפיצול.");
                 return;
             }
 
-            // שימוש ב-AudioContext לקבלת משך הזמן של הקובץ
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const arrayBuffer = await fileInput.arrayBuffer();
-            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-            const duration = audioBuffer.duration;
-            console.log("משך הקובץ:", duration, "שניות");
+            const chunks = Math.ceil(fileInput.size / chunkSize); // חישוב מספר החלקים
+            console.log("שם הקובץ:", fileInput.name);
+            console.log("גודל הקובץ במגה-בייט:", (fileInput.size / (1024 * 1024)).toFixed(2));
+            console.log("מספר חלקים:", chunks);
 
-            const segmentDuration = duration / segments;
-            console.log("משך כל חלק:", segmentDuration, "שניות");
+            for (let i = 0; i < chunks; i++) {
+                const start = i * chunkSize;
+                const end = Math.min((i + 1) * chunkSize, fileInput.size);
+                const chunk = fileInput.slice(start, end);
 
-            if (!ffmpeg.isLoaded()) {
-                await ffmpeg.load();
-            }
-
-            const fileName = fileInput.name;
-            ffmpeg.FS('writeFile', fileName, await fetchFile(fileInput));
-            console.log("קובץ MP3 נטען בהצלחה:", fileName);
-
-            for (let i = 0; i < segments; i++) {
-                const start = i * segmentDuration;
-                const outputFileName = `output_part_${i + 1}.mp3`;
-                console.log(`פיצול חלק ${i + 1}: התחלה ב-${start} שניות, משך ${segmentDuration} שניות`);
-
-                await ffmpeg.run(
-                    '-i', fileName,
-                    '-ss', `${start}`,
-                    '-t', `${segmentDuration}`,
-                    '-acodec', 'copy',
-                    outputFileName
-                );
-
-                const data = ffmpeg.FS('readFile', outputFileName);
-                const blob = new Blob([data.buffer], { type: 'audio/mp3' });
+                // יצירת URL עבור כל חלק להצגה ולהורדה
+                const blob = new Blob([chunk], { type: fileInput.type });
                 const url = URL.createObjectURL(blob);
 
-                const audioElement = document.createElement('audio');
-                audioElement.controls = true;
-                audioElement.src = url;
+                const fileName = `${fileInput.name.split('.').slice(0, -1).join('.')}_part_${i + 1}.${fileInput.name.split('.').pop()}`;
 
+                // יצירת אלמנט להורדה של החלק
                 const downloadLink = document.createElement('a');
                 downloadLink.href = url;
-                downloadLink.download = outputFileName;
+                downloadLink.download = fileName;
                 downloadLink.innerText = `הורד חלק ${i + 1}`;
 
-                resultsContainer.appendChild(audioElement);
-                resultsContainer.appendChild(downloadLink);
-                resultsContainer.appendChild(document.createElement('br'));
+                // הוספת הלינק לרשימת התוצאות
+                const resultItem = document.createElement('div');
+                resultItem.appendChild(downloadLink);
+                resultsContainer.appendChild(resultItem);
             }
-
-            console.log("פיצול הקובץ הושלם.");
         }
     </script>
 </body>
