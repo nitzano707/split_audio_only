@@ -6,20 +6,17 @@
     <title>פיצול קובץ אודיו (WAV או MP3)</title>
 </head>
 <body>
-    <h1>פיצול קובץ אודיו לפי גודל (במגה-בייט)</h1>
+    <h1>פיצול קובץ אודיו לפי גודל מקטע מקסימלי</h1>
     <p>אנא בחר קובץ WAV או MP3:</p>
     <input type="file" id="fileInput" accept=".wav, .mp3">
-    <label for="segmentSizeMB">גודל כל חלק (במגה-בייט):</label>
-    <input type="number" id="segmentSizeMB" value="5" min="1">
     <button onclick="processFile()">פצל קובץ</button>
     <div id="results"></div>
 
     <script>
-        const maxFileSizeMB = 24; // הגבלת גודל קובץ מקור במגה-בייט
+        const maxSegmentSizeMB = 5; // גודל מקטע מקסימלי במגה-בייט
 
         function processFile() {
             const fileInput = document.getElementById('fileInput').files[0];
-            const segmentSizeMB = parseInt(document.getElementById('segmentSizeMB').value);
             const resultsContainer = document.getElementById('results');
             resultsContainer.innerHTML = '';
 
@@ -28,23 +25,17 @@
                 return;
             }
 
-            const fileSizeMB = fileInput.size / (1024 * 1024);
-            if (fileSizeMB > maxFileSizeMB) {
-                alert(`גודל הקובץ גדול מדי! יש לבחור קובץ עד ${maxFileSizeMB} מגה-בייט.`);
-                return;
-            }
-
             if (fileInput.name.endsWith('.wav')) {
-                splitWavFile(fileInput, segmentSizeMB);
+                splitWavFile(fileInput);
             } else if (fileInput.name.endsWith('.mp3')) {
-                splitMp3File(fileInput, segmentSizeMB);
+                splitMp3File(fileInput);
             } else {
                 alert("הפורמט אינו נתמך. יש לבחור קובץ בפורמט WAV או MP3.");
             }
         }
 
-        function splitWavFile(file, segmentSizeMB) {
-            const segmentSize = segmentSizeMB * 1024 * 1024; // המרה לבתים
+        function splitWavFile(file) {
+            const segmentSize = maxSegmentSizeMB * 1024 * 1024; // המרה לבתים
             const reader = new FileReader();
 
             reader.onload = function(e) {
@@ -76,8 +67,8 @@
             reader.readAsArrayBuffer(file);
         }
 
-        function splitMp3File(file, segmentSizeMB) {
-            const segmentSize = segmentSizeMB * 1024 * 1024; // המרה לבתים
+        function splitMp3File(file) {
+            const segmentSize = maxSegmentSizeMB * 1024 * 1024; // המרה לבתים
             const chunks = Math.ceil(file.size / segmentSize);
 
             for (let i = 0; i < chunks; i++) {
