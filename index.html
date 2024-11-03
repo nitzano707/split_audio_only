@@ -50,8 +50,11 @@
                     const end = Math.min(44 + (i + 1) * chunkSize, fileSize);
                     const dataChunk = arrayBuffer.slice(start, end);
                     
-                    // יצירת כותרת חדשה עבור החלק
-                    const newHeader = createWavHeader(dataChunk.byteLength + 36);
+                    // גודל הנתונים של החלק הנוכחי
+                    const currentDataSize = dataChunk.byteLength;
+
+                    // יצירת כותרת חדשה עבור החלק עם הגודל המעודכן
+                    const newHeader = createWavHeader(currentDataSize);
                     
                     // איחוד הכותרת עם הנתונים
                     const wavBlob = new Blob([newHeader, dataChunk], { type: "audio/wav" });
@@ -75,29 +78,29 @@
             reader.readAsArrayBuffer(fileInput);
         }
 
-        // פונקציה ליצירת כותרת WAV חדשה
+        // פונקציה ליצירת כותרת WAV חדשה עם הגודל הנכון
         function createWavHeader(dataSize) {
             const buffer = new ArrayBuffer(44);
             const view = new DataView(buffer);
 
             // RIFF Header
             writeString(view, 0, 'RIFF');             // ChunkID
-            view.setUint32(4, 36 + dataSize, true);    // ChunkSize
+            view.setUint32(4, 36 + dataSize, true);    // ChunkSize (גודל כולל של הקובץ פחות 8 בתים)
             writeString(view, 8, 'WAVE');              // Format
 
             // fmt subchunk
             writeString(view, 12, 'fmt ');             // Subchunk1ID
-            view.setUint32(16, 16, true);              // Subchunk1Size
-            view.setUint16(20, 1, true);               // AudioFormat (PCM)
-            view.setUint16(22, 1, true);               // NumChannels (Mono for simplicity)
-            view.setUint32(24, 44100, true);           // SampleRate
-            view.setUint32(28, 44100 * 2, true);       // ByteRate (SampleRate * NumChannels * BitsPerSample/8)
-            view.setUint16(32, 2, true);               // BlockAlign (NumChannels * BitsPerSample/8)
-            view.setUint16(34, 16, true);              // BitsPerSample
+            view.setUint32(16, 16, true);              // Subchunk1Size (גודל תת-הקטע, כאן 16 עבור PCM)
+            view.setUint16(20, 1, true);               // AudioFormat (1 עבור PCM)
+            view.setUint16(22, 1, true);               // NumChannels (1 לערוץ אחד)
+            view.setUint32(24, 44100, true);           // SampleRate (44100Hz)
+            view.setUint32(28, 44100 * 2, true);       // ByteRate (קצב דגימה כפול מספר ערוצים כפול ביטים לדגימה חלקי 8)
+            view.setUint16(32, 2, true);               // BlockAlign (ערוצים כפול ביטים לדגימה חלקי 8)
+            view.setUint16(34, 16, true);              // BitsPerSample (16 ביט)
 
             // data subchunk
             writeString(view, 36, 'data');             // Subchunk2ID
-            view.setUint32(40, dataSize, true);        // Subchunk2Size
+            view.setUint32(40, dataSize, true);        // Subchunk2Size (גודל נתוני האודיו)
 
             return buffer;
         }
