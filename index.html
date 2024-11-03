@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8">
+  <title>פיצול קובץ אודיו</title>
+</head>
+<body>
+  <h1>פיצול קובץ אודיו לחלקים של עד 2 מגה-בייט</h1>
+  <input type="file" id="audioFile" accept="audio/*">
+  <div id="downloadLinks"></div>
+
+  <script>
+    document.getElementById('audioFile').addEventListener('change', function(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const MAX_CHUNK_SIZE = 2 * 1024 * 1024; // 2 מגה-בייט
+      const totalSize = file.size;
+      const numberOfChunks = Math.ceil(totalSize / MAX_CHUNK_SIZE);
+      const downloadLinksContainer = document.getElementById('downloadLinks');
+      downloadLinksContainer.innerHTML = ''; // נקה קישורים קודמים
+
+      for (let i = 0; i < numberOfChunks; i++) {
+        const start = i * MAX_CHUNK_SIZE;
+        const end = Math.min(start + MAX_CHUNK_SIZE, totalSize);
+        const chunk = file.slice(start, end);
+        const chunkBlob = new Blob([chunk], { type: file.type });
+        const url = URL.createObjectURL(chunkBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${file.name}_part${i + 1}`;
+        link.textContent = `הורד חלק ${i + 1}`;
+        downloadLinksContainer.appendChild(link);
+        downloadLinksContainer.appendChild(document.createElement('br'));
+      }
+    });
+  </script>
+</body>
+</html>
