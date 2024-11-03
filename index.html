@@ -3,153 +3,83 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audio Splitter to MP3</title>
-    <script src="lame.min.js"></script> <!-- ודא שקובץ זה זמין -->
+    <title>MP3 Splitter</title>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
 </head>
 <body>
-    <h1>פיצול קובץ אודיו ל-MP3</h1>
-    <input type="file" id="audioFile" accept="audio/*">
+    <h1>פיצול קובץ MP3</h1>
+    <input type="file" id="audioFile" accept=".mp3">
     <label for="segments">מספר חלקים:</label>
     <input type="number" id="segments" value="2" min="1">
-    <button onclick="splitAudio()">פצל קובץ</button>
+    <button onclick="splitMp3()">פצל קובץ</button>
 
     <div id="results"></div>
 
     <script>
-        async function splitAudio() {
+        const { createFFmpeg, fetchFile } = FFmpeg;
+        const ffmpeg = createFFmpeg({ log: true });
+
+        async function splitMp3() {
             const fileInput = document.getElementById('audioFile').files[0];
             const segments = parseInt(document.getElementById('segments').value);
             const resultsContainer = document.getElementById('results');
             resultsContainer.innerHTML = '';
 
             if (!fileInput || segments < 1) {
-                alert("אנא בחר קובץ אודיו והכנס מספר חלקים חוקי.");
+                alert("אנא בחר קובץ MP3 והכנס מספר חלקים חוקי.");
                 return;
             }
 
-            console.log("קובץ אודיו נבחר:", fileInput.name);
-            console.log("מספר החלקים:", segments);
+            // שימוש ב-AudioContext לקבלת משך הזמן של הקובץ
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const arrayBuffer = await fileInput.arrayBuffer();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            const duration = audioBuffer.duration;
+            console.log("משך הקובץ:", duration, "שניות");
 
-            try {
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const arrayBuffer = await fileInput.arrayBuffer();
-                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            const segmentDuration = duration / segments;
+            console.log("משך כל חלק:", segmentDuration, "שניות");
 
-                console.log("משך האודיו:", audioBuffer.duration, "שניות");
-                const segmentDuration = audioBuffer.duration / segments;
-                console.log("משך כל חלק:", segmentDuration, "שניות");
-
-                for (let i = 0; i < segments; i++) {
-                    const start = i * segmentDuration;
-                    const end = (i + 1) * segmentDuration;
-                    console.log(`פיצול חלק ${i + 1}: התחלה ב-${start} שניות, סיום ב-${end} שניות`);
-
-                    const offlineContext = new OfflineAudioContext(
-                        audioBuffer.numberOfChannels,
-                        (end - start) * audioBuffer.sampleRate,
-                        audioBuffer.sampleRate
-                    );
-
-                    const source = offlineContext.createBufferSource();
-                    source.buffer = audioBuffer;
-
-                    source.connect(offlineContext.destination);
-                    source.start(0, start, end - start);
-
-                    offlineContext.oncomplete = async (e) => {
-                        console.log(`חלק ${i + 1} הסתיים בהצלחה. המרתו ל-WAV...`);
-                        const wavBlob = await audioBufferToWavBlob(e.renderedBuffer);
-                        console.log(`חלק ${i + 1} הומר ל-WAV בהצלחה. המרתו ל-MP3...`);
-                        
-                        try {
-                            const mp3Blob = await convertWavToMp3(wavBlob);
-                            console.log(`חלק ${i + 1} הומר ל-MP3 בהצלחה.`);
-                            const url = URL.createObjectURL(mp3Blob);
-
-                            const audioElement = document.createElement('audio');
-                            audioElement.controls = true;
-                            audioElement.src = url;
-
-                            const downloadLink = document.createElement('a');
-                            downloadLink.href = url;
-                            downloadLink.download = `audio_segment_${i + 1}.mp3`;
-                            downloadLink.innerText = `הורד חלק ${i + 1}`;
-
-                            resultsContainer.appendChild(audioElement);
-                            resultsContainer.appendChild(downloadLink);
-                            resultsContainer.appendChild(document.createElement('br'));
-                        } catch (mp3Error) {
-                            console.error(`שגיאה בהמרת חלק ${i + 1} ל-MP3:`, mp3Error);
-                        }
-                    };
-
-                    await offlineContext.startRendering();
-                }
-            } catch (error) {
-                console.error("שגיאה במהלך פיצול קובץ האודיו:", error);
-                alert("אירעה שגיאה במהלך פיצול קובץ האודיו. בדוק את המסוף לפרטים.");
-            }
-        }
-
-        async function audioBufferToWavBlob(buffer) {
-            const numOfChannels = buffer.numberOfChannels;
-            const sampleRate = buffer.sampleRate;
-            const length = buffer.length * numOfChannels * 2 + 44;
-            const result = new DataView(new ArrayBuffer(length));
-
-            function writeString(view, offset, string) {
-                for (let i = 0; i < string.length; i++) {
-                    view.setUint8(offset + i, string.charCodeAt(i));
-                }
+            if (!ffmpeg.isLoaded()) {
+                await ffmpeg.load();
             }
 
-            let offset = 0;
-            writeString(result, offset, 'RIFF'); offset += 4;
-            result.setUint32(offset, 36 + buffer.length * numOfChannels * 2, true); offset += 4;
-            writeString(result, offset, 'WAVE'); offset += 4;
-            writeString(result, offset, 'fmt '); offset += 4;
-            result.setUint32(offset, 16, true); offset += 4;
-            result.setUint16(offset, 1, true); offset += 2;
-            result.setUint16(offset, numOfChannels, true); offset += 2;
-            result.setUint32(offset, sampleRate, true); offset += 4;
-            result.setUint32(offset, sampleRate * numOfChannels * 2, true); offset += 4;
-            result.setUint16(offset, numOfChannels * 2, true); offset += 2;
-            result.setUint16(offset, 16, true); offset += 2;
-            writeString(result, offset, 'data'); offset += 4;
-            result.setUint32(offset, buffer.length * numOfChannels * 2, true); offset += 4;
+            const fileName = fileInput.name;
+            ffmpeg.FS('writeFile', fileName, await fetchFile(fileInput));
+            console.log("קובץ MP3 נטען בהצלחה:", fileName);
 
-            for (let i = 0; i < buffer.length; i++) {
-                for (let channel = 0; channel < numOfChannels; channel++) {
-                    const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
-                    result.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
-                    offset += 2;
-                }
+            for (let i = 0; i < segments; i++) {
+                const start = i * segmentDuration;
+                const outputFileName = `output_part_${i + 1}.mp3`;
+                console.log(`פיצול חלק ${i + 1}: התחלה ב-${start} שניות, משך ${segmentDuration} שניות`);
+
+                await ffmpeg.run(
+                    '-i', fileName,
+                    '-ss', `${start}`,
+                    '-t', `${segmentDuration}`,
+                    '-acodec', 'copy',
+                    outputFileName
+                );
+
+                const data = ffmpeg.FS('readFile', outputFileName);
+                const blob = new Blob([data.buffer], { type: 'audio/mp3' });
+                const url = URL.createObjectURL(blob);
+
+                const audioElement = document.createElement('audio');
+                audioElement.controls = true;
+                audioElement.src = url;
+
+                const downloadLink = document.createElement('a');
+                downloadLink.href = url;
+                downloadLink.download = outputFileName;
+                downloadLink.innerText = `הורד חלק ${i + 1}`;
+
+                resultsContainer.appendChild(audioElement);
+                resultsContainer.appendChild(downloadLink);
+                resultsContainer.appendChild(document.createElement('br'));
             }
 
-            return new Blob([result], { type: 'audio/wav' });
-        }
-
-        async function convertWavToMp3(wavBlob) {
-            const arrayBuffer = await wavBlob.arrayBuffer();
-            const wav = new Int16Array(arrayBuffer);
-            const mp3encoder = new lamejs.Mp3Encoder(1, 44100, 128);
-            const mp3Data = [];
-            let sampleBlockSize = 1152;
-
-            for (let i = 0; i < wav.length; i += sampleBlockSize) {
-                const sampleChunk = wav.subarray(i, i + sampleBlockSize);
-                const mp3buf = mp3encoder.encodeBuffer(sampleChunk);
-                if (mp3buf.length > 0) {
-                    mp3Data.push(new Int8Array(mp3buf));
-                }
-            }
-
-            const mp3buf = mp3encoder.flush();
-            if (mp3buf.length > 0) {
-                mp3Data.push(new Int8Array(mp3buf));
-            }
-
-            return new Blob(mp3Data, { type: 'audio/mp3' });
+            console.log("פיצול הקובץ הושלם.");
         }
     </script>
 </body>
