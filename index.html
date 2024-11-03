@@ -21,7 +21,7 @@
         return;
       }
 
-      const chunkSizeBytes = chunkSizeMB * 1024 * 1024; // המרה למגה-בייט
+      const chunkSizeBytes = chunkSizeMB * 1024 * 1024; // המרה לבייטים
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const reader = new FileReader();
 
@@ -37,7 +37,20 @@
           for (let i = 0; i < numberOfChunks; i++) {
             const startOffset = i * chunkDuration;
             const endOffset = Math.min((i + 1) * chunkDuration, totalDuration);
-            const chunkBuffer = buffer.slice(startOffset, endOffset);
+            const frameCount = Math.floor((endOffset - startOffset) * buffer.sampleRate);
+            const chunkBuffer = audioContext.createBuffer(
+              buffer.numberOfChannels,
+              frameCount,
+              buffer.sampleRate
+            );
+
+            for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+              const channelData = buffer.getChannelData(channel).subarray(
+                Math.floor(startOffset * buffer.sampleRate),
+                Math.floor(endOffset * buffer.sampleRate)
+              );
+              chunkBuffer.copyToChannel(channelData, channel, 0);
+            }
 
             audioBufferToWav(chunkBuffer).then(wavBlob => {
               const url = URL.createObjectURL(wavBlob);
