@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>פיצול קובץ WAV לפי גודל</title>
+</head>
+<body>
+    <h1>פיצול קובץ WAV לפי גודל (במגה-בייט)</h1>
+    <input type="file" id="fileInput" accept=".wav">
+    <button onclick="splitWavFile()">פצל קובץ</button>
+    <div id="results"></div>
+
+    <script>
+        const chunkSizeMB = 5; // גודל כל חלק במגה-בייט
+        const chunkSize = chunkSizeMB * 1024 * 1024; // המרה לבתים
+
+        function splitWavFile() {
+            const fileInput = document.getElementById('fileInput').files[0];
+            const resultsContainer = document.getElementById('results');
+            resultsContainer.innerHTML = '';
+
+            if (!fileInput) {
+                alert("אנא בחר קובץ WAV לפיצול.");
+                return;
+            }
+
+            if (!fileInput.name.endsWith('.wav')) {
+                alert("הקובץ שנבחר אינו בפורמט WAV.");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+                const fileSize = arrayBuffer.byteLength;
+                
+                console.log("שם הקובץ:", fileInput.name);
+                console.log("גודל הקובץ במגה-בייט:", (fileSize / (1024 * 1024)).toFixed(2));
+
+                // קריאת הכותרת של קובץ ה-WAV (44 בתים ראשונים)
+                const header = arrayBuffer.slice(0, 44);
+                const dataSize = fileSize - 44;
+                const chunks = Math.ceil(dataSize / chunkSize);
+                
+                console.log("מספר חלקים:", chunks);
+
+                for (let i = 0; i < chunks; i++) {
+                    const start = 44 + i * chunkSize;
+                    const end = Math.min(44 + (i + 1) * chunkSize, fileSize);
+                    const dataChunk = arrayBuffer.slice(start, end);
+                    
+                    // יצירת כותרת חדשה עבור החלק
+                    const newHeader = createWavHeader(dataChunk.byteLength + 36);
+                    
+                    // איחוד הכותרת עם הנתונים
+                    const wavBlob = new Blob([newHeader, dataChunk], { type: "audio/wav" });
+                    const url = URL.createObjectURL(wavBlob);
+
+                    const fileName = `${fileInput.name.split('.').slice(0, -1).join('.')}_part_${i + 1}.wav`;
+
+                    // יצירת קישור להורדה עבור כל חלק
+                    const downloadLink = document.createElement('a');
+                    downloadLink.href = url;
+                    downloadLink.download = fileName;
+                    downloadLink.innerText = `הורד חלק ${i + 1}`;
+
+                    // הצגת הקישור בתוצאה
+                    const resultItem = document.createElement('div');
+                    resultItem.appendChild(downloadLink);
+                    resultsContainer.appendChild(resultItem);
+                }
+            };
+
+            reader.readAsArrayBuffer(fileInput);
+        }
+
+        // פונקציה ליצירת כותרת WAV חדשה
+        function createWavHeader(dataSize) {
+            const buffer = new ArrayBuffer(44);
+            const view = new DataView(buffer);
+
+            // RIFF Header
+            writeString(view, 0, 'RIFF');             // ChunkID
+            view.setUint32(4, 36 + dataSize, true);    // ChunkSize
+            writeString(view, 8, 'WAVE');              // Format
+
+            // fmt subchunk
+            writeString(view, 12, 'fmt ');             // Subchunk1ID
+            view.setUint32(16, 16, true);              // Subchunk1Size
+            view.setUint16(20, 1, true);               // AudioFormat (PCM)
+            view.setUint16(22, 1, true);               // NumChannels (Mono for simplicity)
+            view.setUint32(24, 44100, true);           // SampleRate
+            view.setUint32(28, 44100 * 2, true);       // ByteRate (SampleRate * NumChannels * BitsPerSample/8)
+            view.setUint16(32, 2, true);               // BlockAlign (NumChannels * BitsPerSample/8)
+            view.setUint16(34, 16, true);              // BitsPerSample
+
+            // data subchunk
+            writeString(view, 36, 'data');             // Subchunk2ID
+            view.setUint32(40, dataSize, true);        // Subchunk2Size
+
+            return buffer;
+        }
+
+        // פונקציה לסיוע בכתיבת טקסט ל-DataView
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+    </script>
+</body>
+</html>
