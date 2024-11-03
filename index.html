@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>פיצול קובץ אודיו (WAV או MP3)</title>
+</head>
+<body>
+    <h1>פיצול קובץ אודיו לפי גודל (במגה-בייט)</h1>
+    <p>אנא בחר קובץ WAV או MP3:</p>
+    <input type="file" id="fileInput" accept=".wav, .mp3">
+    <label for="segmentSizeMB">גודל כל חלק (במגה-בייט):</label>
+    <input type="number" id="segmentSizeMB" value="5" min="1">
+    <button onclick="processFile()">פצל קובץ</button>
+    <div id="results"></div>
+
+    <script>
+        const maxFileSizeMB = 24; // הגבלת גודל קובץ מקור במגה-בייט
+
+        function processFile() {
+            const fileInput = document.getElementById('fileInput').files[0];
+            const segmentSizeMB = parseInt(document.getElementById('segmentSizeMB').value);
+            const resultsContainer = document.getElementById('results');
+            resultsContainer.innerHTML = '';
+
+            if (!fileInput) {
+                alert("אנא בחר קובץ WAV או MP3 לפיצול.");
+                return;
+            }
+
+            const fileSizeMB = fileInput.size / (1024 * 1024);
+            if (fileSizeMB > maxFileSizeMB) {
+                alert(`גודל הקובץ גדול מדי! יש לבחור קובץ עד ${maxFileSizeMB} מגה-בייט.`);
+                return;
+            }
+
+            if (fileInput.name.endsWith('.wav')) {
+                splitWavFile(fileInput, segmentSizeMB);
+            } else if (fileInput.name.endsWith('.mp3')) {
+                splitMp3File(fileInput, segmentSizeMB);
+            } else {
+                alert("הפורמט אינו נתמך. יש לבחור קובץ בפורמט WAV או MP3.");
+            }
+        }
+
+        function splitWavFile(file, segmentSizeMB) {
+            const segmentSize = segmentSizeMB * 1024 * 1024; // המרה לבתים
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+                const fileSize = arrayBuffer.byteLength;
+
+                // קריאת מאפייני הכותרת של WAV
+                const header = new DataView(arrayBuffer.slice(0, 44));
+                const numChannels = header.getUint16(22, true);
+                const sampleRate = header.getUint32(24, true);
+                const bitsPerSample = header.getUint16(34, true);
+
+                const dataSize = fileSize - 44;
+                const chunks = Math.ceil(dataSize / segmentSize);
+
+                for (let i = 0; i < chunks; i++) {
+                    const start = 44 + i * segmentSize;
+                    const end = Math.min(44 + (i + 1) * segmentSize, fileSize);
+                    const dataChunk = arrayBuffer.slice(start, end);
+                    const currentDataSize = dataChunk.byteLength;
+                    
+                    // יצירת כותרת חדשה עבור כל חלק
+                    const newHeader = createWavHeader(currentDataSize, numChannels, sampleRate, bitsPerSample);
+                    const wavBlob = new Blob([newHeader, dataChunk], { type: "audio/wav" });
+                    displayDownloadLink(wavBlob, file.name, i + 1, 'wav');
+                }
+            };
+
+            reader.readAsArrayBuffer(file);
+        }
+
+        function splitMp3File(file, segmentSizeMB) {
+            const segmentSize = segmentSizeMB * 1024 * 1024; // המרה לבתים
+            const chunks = Math.ceil(file.size / segmentSize);
+
+            for (let i = 0; i < chunks; i++) {
+                const start = i * segmentSize;
+                const end = Math.min((i + 1) * segmentSize, file.size);
+                const blobChunk = file.slice(start, end);
+                displayDownloadLink(blobChunk, file.name, i + 1, 'mp3');
+            }
+        }
+
+        function createWavHeader(dataSize, numChannels, sampleRate, bitsPerSample) {
+            const buffer = new ArrayBuffer(44);
+            const view = new DataView(buffer);
+
+            // RIFF Header
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + dataSize, true);
+            writeString(view, 8, 'WAVE');
+
+            // fmt subchunk
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * numChannels * bitsPerSample / 8, true);
+            view.setUint16(32, numChannels * bitsPerSample / 8, true);
+            view.setUint16(34, bitsPerSample, true);
+
+            // data subchunk
+            writeString(view, 36, 'data');
+            view.setUint32(40, dataSize, true);
+
+            return buffer;
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        function displayDownloadLink(blob, originalName, partNumber, extension) {
+            const fileName = `${originalName.split('.').slice(0, -1).join('.')}_part_${partNumber}.${extension}`;
+            const url = URL.createObjectURL(blob);
+
+            const downloadLink = document.createElement('a');
+            downloadLink.href = url;
+            downloadLink.download = fileName;
+            downloadLink.innerText = `הורד חלק ${partNumber} (${extension.toUpperCase()})`;
+
+            const resultItem = document.createElement('div');
+            resultItem.appendChild(downloadLink);
+            document.getElementById('results').appendChild(resultItem);
+        }
+    </script>
+</body>
+</html>
