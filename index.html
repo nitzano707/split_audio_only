@@ -39,7 +39,15 @@
                 console.log("גודל הקובץ במגה-בייט:", (fileSize / (1024 * 1024)).toFixed(2));
 
                 // קריאת הכותרת של קובץ ה-WAV (44 בתים ראשונים)
-                const header = arrayBuffer.slice(0, 44);
+                const header = new DataView(arrayBuffer.slice(0, 44));
+                const numChannels = header.getUint16(22, true);       // מספר ערוצים
+                const sampleRate = header.getUint32(24, true);        // קצב דגימה
+                const bitsPerSample = header.getUint16(34, true);     // מספר הביטים לדגימה
+
+                console.log("ערוצים:", numChannels);
+                console.log("קצב דגימה:", sampleRate);
+                console.log("ביטים לדגימה:", bitsPerSample);
+
                 const dataSize = fileSize - 44;
                 const chunks = Math.ceil(dataSize / chunkSize);
                 
@@ -53,8 +61,8 @@
                     // גודל הנתונים של החלק הנוכחי
                     const currentDataSize = dataChunk.byteLength;
 
-                    // יצירת כותרת חדשה עבור החלק עם הגודל המעודכן
-                    const newHeader = createWavHeader(currentDataSize);
+                    // יצירת כותרת חדשה עבור החלק עם הגודל המעודכן והמאפיינים המקוריים
+                    const newHeader = createWavHeader(currentDataSize, numChannels, sampleRate, bitsPerSample);
                     
                     // איחוד הכותרת עם הנתונים
                     const wavBlob = new Blob([newHeader, dataChunk], { type: "audio/wav" });
@@ -78,29 +86,29 @@
             reader.readAsArrayBuffer(fileInput);
         }
 
-        // פונקציה ליצירת כותרת WAV חדשה עם הגודל הנכון
-        function createWavHeader(dataSize) {
+        // פונקציה ליצירת כותרת WAV חדשה עם מאפיינים מותאמים
+        function createWavHeader(dataSize, numChannels, sampleRate, bitsPerSample) {
             const buffer = new ArrayBuffer(44);
             const view = new DataView(buffer);
 
             // RIFF Header
-            writeString(view, 0, 'RIFF');             // ChunkID
-            view.setUint32(4, 36 + dataSize, true);    // ChunkSize (גודל כולל של הקובץ פחות 8 בתים)
-            writeString(view, 8, 'WAVE');              // Format
+            writeString(view, 0, 'RIFF');                             // ChunkID
+            view.setUint32(4, 36 + dataSize, true);                    // ChunkSize
+            writeString(view, 8, 'WAVE');                              // Format
 
             // fmt subchunk
-            writeString(view, 12, 'fmt ');             // Subchunk1ID
-            view.setUint32(16, 16, true);              // Subchunk1Size (גודל תת-הקטע, כאן 16 עבור PCM)
-            view.setUint16(20, 1, true);               // AudioFormat (1 עבור PCM)
-            view.setUint16(22, 1, true);               // NumChannels (1 לערוץ אחד)
-            view.setUint32(24, 44100, true);           // SampleRate (44100Hz)
-            view.setUint32(28, 44100 * 2, true);       // ByteRate (קצב דגימה כפול מספר ערוצים כפול ביטים לדגימה חלקי 8)
-            view.setUint16(32, 2, true);               // BlockAlign (ערוצים כפול ביטים לדגימה חלקי 8)
-            view.setUint16(34, 16, true);              // BitsPerSample (16 ביט)
+            writeString(view, 12, 'fmt ');                             // Subchunk1ID
+            view.setUint32(16, 16, true);                              // Subchunk1Size
+            view.setUint16(20, 1, true);                               // AudioFormat (1 עבור PCM)
+            view.setUint16(22, numChannels, true);                     // NumChannels
+            view.setUint32(24, sampleRate, true);                      // SampleRate
+            view.setUint32(28, sampleRate * numChannels * bitsPerSample / 8, true); // ByteRate
+            view.setUint16(32, numChannels * bitsPerSample / 8, true); // BlockAlign
+            view.setUint16(34, bitsPerSample, true);                   // BitsPerSample
 
             // data subchunk
-            writeString(view, 36, 'data');             // Subchunk2ID
-            view.setUint32(40, dataSize, true);        // Subchunk2Size (גודל נתוני האודיו)
+            writeString(view, 36, 'data');                             // Subchunk2ID
+            view.setUint32(40, dataSize, true);                        // Subchunk2Size
 
             return buffer;
         }
