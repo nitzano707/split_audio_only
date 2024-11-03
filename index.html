@@ -1,141 +1,120 @@
 <!DOCTYPE html>
-<html lang="he">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>פיצול קובץ אודיו</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Splitter</title>
 </head>
 <body>
-  <h1>פיצול קובץ אודיו למקטעים</h1>
-  <input type="file" id="audioFile" accept="audio/*">
-  <label for="chunkSize">גודל מקטע (במגה-בייט):</label>
-  <input type="number" id="chunkSize" min="1" value="2">
-  <button id="splitButton">פצל קובץ</button>
-  <div id="downloadLinks"></div>
+    <h1>פיצול קובץ אודיו</h1>
+    <input type="file" id="audioFile" accept="audio/*">
+    <label for="segments">מספר חלקים:</label>
+    <input type="number" id="segments" value="2" min="1">
+    <button onclick="splitAudio()">פצל קובץ</button>
 
-  <script>
-    document.getElementById('splitButton').addEventListener('click', function() {
-      const file = document.getElementById('audioFile').files[0];
-      const chunkSizeMB = parseFloat(document.getElementById('chunkSize').value);
-      if (!file || isNaN(chunkSizeMB) || chunkSizeMB <= 0) {
-        alert('אנא בחר קובץ אודיו והזן גודל מקטע חוקי.');
-        return;
-      }
+    <div id="results"></div>
 
-      const chunkSizeBytes = chunkSizeMB * 1024 * 1024; // המרה לבייטים
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const reader = new FileReader();
+    <script>
+        async function splitAudio() {
+            const fileInput = document.getElementById('audioFile').files[0];
+            const segments = parseInt(document.getElementById('segments').value);
+            const resultsContainer = document.getElementById('results');
+            resultsContainer.innerHTML = '';
 
-      reader.onload = function(e) {
-        audioContext.decodeAudioData(e.target.result, function(buffer) {
-          const totalDuration = buffer.duration;
-          const totalSize = e.target.result.byteLength;
-          const numberOfChunks = Math.ceil(totalSize / chunkSizeBytes);
-          const chunkDuration = totalDuration / numberOfChunks;
-          const downloadLinksContainer = document.getElementById('downloadLinks');
-          downloadLinksContainer.innerHTML = ''; // נקה קישורים קודמים
-
-          for (let i = 0; i < numberOfChunks; i++) {
-            const startOffset = i * chunkDuration;
-            const endOffset = Math.min((i + 1) * chunkDuration, totalDuration);
-            const frameCount = Math.floor((endOffset - startOffset) * buffer.sampleRate);
-            const chunkBuffer = audioContext.createBuffer(
-              buffer.numberOfChannels,
-              frameCount,
-              buffer.sampleRate
-            );
-
-            for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-              const channelData = buffer.getChannelData(channel).subarray(
-                Math.floor(startOffset * buffer.sampleRate),
-                Math.floor(endOffset * buffer.sampleRate)
-              );
-              chunkBuffer.copyToChannel(channelData, channel, 0);
+            if (!fileInput || segments < 1) {
+                alert("אנא בחר קובץ אודיו והכנס מספר חלקים חוקי.");
+                return;
             }
 
-            audioBufferToWav(chunkBuffer).then(wavBlob => {
-              const url = URL.createObjectURL(wavBlob);
-              const link = document.createElement('a');
-              link.href = url;
-              link.download = `${file.name}_part${i + 1}.wav`;
-              link.textContent = `הורד חלק ${i + 1}`;
-              downloadLinksContainer.appendChild(link);
-              downloadLinksContainer.appendChild(document.createElement('br'));
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const arrayBuffer = await fileInput.arrayBuffer();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+            const segmentDuration = audioBuffer.duration / segments;
+
+            for (let i = 0; i < segments; i++) {
+                const start = i * segmentDuration;
+                const end = (i + 1) * segmentDuration;
+
+                const offlineContext = new OfflineAudioContext(
+                    audioBuffer.numberOfChannels,
+                    (end - start) * audioBuffer.sampleRate,
+                    audioBuffer.sampleRate
+                );
+
+                const source = offlineContext.createBufferSource();
+                source.buffer = audioBuffer;
+
+                source.connect(offlineContext.destination);
+                source.start(0, start, end - start);
+
+                const renderedBuffer = await offlineContext.startRendering();
+
+                offlineContext.oncomplete = async (e) => {
+                    const audioBlob = await audioBufferToBlob(e.renderedBuffer);
+                    const url = URL.createObjectURL(audioBlob);
+
+                    const audioElement = document.createElement('audio');
+                    audioElement.controls = true;
+                    audioElement.src = url;
+
+                    const downloadLink = document.createElement('a');
+                    downloadLink.href = url;
+                    downloadLink.download = `audio_segment_${i + 1}.wav`;
+                    downloadLink.innerText = `הורד חלק ${i + 1}`;
+
+                    resultsContainer.appendChild(audioElement);
+                    resultsContainer.appendChild(downloadLink);
+                    resultsContainer.appendChild(document.createElement('br'));
+                };
+            }
+        }
+
+        function audioBufferToBlob(buffer) {
+            return new Promise((resolve) => {
+                const worker = new Worker(URL.createObjectURL(new Blob([`
+                    onmessage = async function (e) {
+                        const audioBuffer = e.data.buffer;
+                        const numChannels = audioBuffer.numberOfChannels;
+                        const length = audioBuffer.length;
+                        const sampleRate = audioBuffer.sampleRate;
+
+                        let wav = new Uint8Array(44 + length * 2);
+                        let view = new DataView(wav.buffer);
+
+                        view.setUint32(0, 0x46464952, false); // "RIFF"
+                        view.setUint32(4, 36 + length * 2, true);
+                        view.setUint32(8, 0x45564157, false); // "WAVE"
+                        view.setUint32(12, 0x20746d66, false); // "fmt "
+                        view.setUint32(16, 16, true);
+                        view.setUint16(20, 1, true);
+                        view.setUint16(22, numChannels, true);
+                        view.setUint32(24, sampleRate, true);
+                        view.setUint32(28, sampleRate * numChannels * 2, true);
+                        view.setUint16(32, numChannels * 2, true);
+                        view.setUint16(34, 16, true);
+                        view.setUint32(36, 0x61746164, false); // "data"
+                        view.setUint32(40, length * 2, true);
+
+                        for (let i = 0; i < length; i++) {
+                            for (let ch = 0; ch < numChannels; ch++) {
+                                const sample = Math.max(-1, Math.min(1, audioBuffer.getChannelData(ch)[i]));
+                                view.setInt16(44 + (i * numChannels + ch) * 2, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+                            }
+                        }
+
+                        postMessage(new Blob([wav], { type: "audio/wav" }));
+                    };
+                `])));
+
+                worker.onmessage = function (e) {
+                    resolve(e.data);
+                    worker.terminate();
+                };
+
+                worker.postMessage({ buffer });
             });
-          }
-        });
-      };
-
-      reader.readAsArrayBuffer(file);
-    });
-
-    function audioBufferToWav(buffer) {
-      return new Promise(resolve => {
-        const numOfChan = buffer.numberOfChannels,
-              length = buffer.length * numOfChan * 2 + 44,
-              bufferArray = new ArrayBuffer(length),
-              view = new DataView(bufferArray),
-              channels = [],
-              sampleRate = buffer.sampleRate,
-              offset = 0,
-              pos = 0;
-
-        function setUint16(data) {
-          view.setUint16(pos, data, true);
-          pos += 2;
         }
-
-        function setUint32(data) {
-          view.setUint32(pos, data, true);
-          pos += 4;
-        }
-
-        // RIFF identifier 'RIFF'
-        setUint32(0x46464952);
-        // file length minus RIFF identifier length and file description length
-        setUint32(length - 8);
-        // RIFF type 'WAVE'
-        setUint32(0x45564157);
-        // format chunk identifier 'fmt '
-        setUint32(0x20746d66);
-        // format chunk length
-        setUint32(16);
-        // sample format (raw)
-        setUint16(1);
-        // channel count
-        setUint16(numOfChan);
-        // sample rate
-        setUint32(sampleRate);
-        // byte rate (sample rate * block align)
-        setUint32(sampleRate * numOfChan * 2);
-        // block align (channel count * bytes per sample)
-        setUint16(numOfChan * 2);
-        // bits per sample
-        setUint16(16);
-        // data chunk identifier 'data'
-        setUint32(0x61746164);
-        // data chunk length
-        setUint32(length - pos - 4);
-
-        // write interleaved data
-        for (let i = 0; i < buffer.numberOfChannels; i++)
-          channels.push(buffer.getChannelData(i));
-
-        while (pos < length) {
-          for (let i = 0; i < numOfChan; i++) {
-            // clamp the sample
-            let sample = Math.max(-1, Math.min(1, channels[i][offset]));
-            // scale it to 16-bit integer
-            sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
-            // write the 16-bit sample
-            view.setInt16(pos, sample, true);
-            pos += 2;
-          }
-          offset++;
-        }
-
-        resolve(new Blob([bufferArray], { type: 'audio/wav' }));
-      });
-    }
-  </script>
+    </script>
 </body>
 </html>
