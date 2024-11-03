@@ -57,7 +57,11 @@
 
                     offlineContext.oncomplete = async (e) => {
                         console.log(`חלק ${i + 1} הסתיים בהצלחה.`);
-                        const audioBlob = await audioBufferToBlob(e.renderedBuffer);
+                        const channelData = [];
+                        for (let ch = 0; ch < e.renderedBuffer.numberOfChannels; ch++) {
+                            channelData.push(e.renderedBuffer.getChannelData(ch));
+                        }
+                        const audioBlob = await audioBufferToBlob(channelData, e.renderedBuffer.sampleRate);
                         const url = URL.createObjectURL(audioBlob);
 
                         const audioElement = document.createElement('audio');
@@ -82,16 +86,12 @@
             }
         }
 
-        function audioBufferToBlob(buffer) {
+        function audioBufferToBlob(channelData, sampleRate) {
             console.log("התחלה של המרה ל-BLOB...");
             return new Promise((resolve) => {
                 const worker = new Worker(URL.createObjectURL(new Blob([`
-                    onmessage = async function (e) {
-                        const audioBuffer = e.data.buffer;
-                        const numChannels = audioBuffer.numberOfChannels;
-                        const length = audioBuffer.length;
-                        const sampleRate = audioBuffer.sampleRate;
-
+                    onmessage = function (e) {
+                        const { channelData, sampleRate, numChannels, length } = e.data;
                         let wav = new Uint8Array(44 + length * 2);
                         let view = new DataView(wav.buffer);
 
@@ -111,7 +111,7 @@
 
                         for (let i = 0; i < length; i++) {
                             for (let ch = 0; ch < numChannels; ch++) {
-                                const sample = Math.max(-1, Math.min(1, audioBuffer.getChannelData(ch)[i]));
+                                const sample = Math.max(-1, Math.min(1, channelData[ch][i]));
                                 view.setInt16(44 + (i * numChannels + ch) * 2, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
                             }
                         }
@@ -126,7 +126,12 @@
                     worker.terminate();
                 };
 
-                worker.postMessage({ buffer });
+                worker.postMessage({
+                    channelData: channelData.map(ch => Array.from(ch)),
+                    sampleRate: sampleRate,
+                    numChannels: channelData.length,
+                    length: channelData[0].length
+                });
             });
         }
     </script>
