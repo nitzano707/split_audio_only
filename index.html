@@ -3,10 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audio Splitter</title>
+    <title>Audio Splitter to MP3</title>
+    <!-- הוסף את הספרייה lame.min.js -->
+    <script src="lame.min.js"></script>
 </head>
 <body>
-    <h1>פיצול קובץ אודיו</h1>
+    <h1>פיצול קובץ אודיו ל-MP3</h1>
     <input type="file" id="audioFile" accept="audio/*">
     <label for="segments">מספר חלקים:</label>
     <input type="number" id="segments" value="2" min="1">
@@ -57,12 +59,9 @@
 
                     offlineContext.oncomplete = async (e) => {
                         console.log(`חלק ${i + 1} הסתיים בהצלחה.`);
-                        const channelData = [];
-                        for (let ch = 0; ch < e.renderedBuffer.numberOfChannels; ch++) {
-                            channelData.push(e.renderedBuffer.getChannelData(ch));
-                        }
-                        const audioBlob = await audioBufferToBlob(channelData, e.renderedBuffer.sampleRate);
-                        const url = URL.createObjectURL(audioBlob);
+                        const wavBlob = await audioBufferToWavBlob(e.renderedBuffer);
+                        const mp3Blob = await convertWavToMp3(wavBlob);
+                        const url = URL.createObjectURL(mp3Blob);
 
                         const audioElement = document.createElement('audio');
                         audioElement.controls = true;
@@ -70,7 +69,7 @@
 
                         const downloadLink = document.createElement('a');
                         downloadLink.href = url;
-                        downloadLink.download = `audio_segment_${i + 1}.wav`;
+                        downloadLink.download = `audio_segment_${i + 1}.mp3`;
                         downloadLink.innerText = `הורד חלק ${i + 1}`;
 
                         resultsContainer.appendChild(audioElement);
@@ -86,53 +85,63 @@
             }
         }
 
-        function audioBufferToBlob(channelData, sampleRate) {
-            console.log("התחלה של המרה ל-BLOB...");
-            return new Promise((resolve) => {
-                const worker = new Worker(URL.createObjectURL(new Blob([`
-                    onmessage = function (e) {
-                        const { channelData, sampleRate, numChannels, length } = e.data;
-                        let wav = new Uint8Array(44 + length * 2);
-                        let view = new DataView(wav.buffer);
+        async function audioBufferToWavBlob(buffer) {
+            // פונקציה להמרת AudioBuffer ל-BLOB בפורמט WAV
+            const numOfChannels = buffer.numberOfChannels;
+            const sampleRate = buffer.sampleRate;
+            const length = buffer.length * numOfChannels * 2 + 44;
+            const result = new DataView(new ArrayBuffer(length));
 
-                        view.setUint32(0, 0x46464952, false); // "RIFF"
-                        view.setUint32(4, 36 + length * 2, true);
-                        view.setUint32(8, 0x45564157, false); // "WAVE"
-                        view.setUint32(12, 0x20746d66, false); // "fmt "
-                        view.setUint32(16, 16, true);
-                        view.setUint16(20, 1, true);
-                        view.setUint16(22, numChannels, true);
-                        view.setUint32(24, sampleRate, true);
-                        view.setUint32(28, sampleRate * numChannels * 2, true);
-                        view.setUint16(32, numChannels * 2, true);
-                        view.setUint16(34, 16, true);
-                        view.setUint32(36, 0x61746164, false); // "data"
-                        view.setUint32(40, length * 2, true);
+            function writeString(view, offset, string) {
+                for (let i = 0; i < string.length; i++) {
+                    view.setUint8(offset + i, string.charCodeAt(i));
+                }
+            }
 
-                        for (let i = 0; i < length; i++) {
-                            for (let ch = 0; ch < numChannels; ch++) {
-                                const sample = Math.max(-1, Math.min(1, channelData[ch][i]));
-                                view.setInt16(44 + (i * numChannels + ch) * 2, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
-                            }
-                        }
+            let offset = 0;
+            writeString(result, offset, 'RIFF'); offset += 4;
+            result.setUint32(offset, 36 + buffer.length * numOfChannels * 2, true); offset += 4;
+            writeString(result, offset, 'WAVE'); offset += 4;
+            writeString(result, offset, 'fmt '); offset += 4;
+            result.setUint32(offset, 16, true); offset += 4;
+            result.setUint16(offset, 1, true); offset += 2;
+            result.setUint16(offset, numOfChannels, true); offset += 2;
+            result.setUint32(offset, sampleRate, true); offset += 4;
+            result.setUint32(offset, sampleRate * numOfChannels * 2, true); offset += 4;
+            result.setUint16(offset, numOfChannels * 2, true); offset += 2;
+            result.setUint16(offset, 16, true); offset += 2;
+            writeString(result, offset, 'data'); offset += 4;
+            result.setUint32(offset, buffer.length * numOfChannels * 2, true); offset += 4;
 
-                        postMessage(new Blob([wav], { type: "audio/wav" }));
-                    };
-                `])));
+            for (let i = 0; i < buffer.length; i++) {
+                for (let channel = 0; channel < numOfChannels; channel++) {
+                    const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
+                    result.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+                    offset += 2;
+                }
+            }
 
-                worker.onmessage = function (e) {
-                    console.log("המרה ל-BLOB הסתיימה בהצלחה.");
-                    resolve(e.data);
-                    worker.terminate();
-                };
+            return new Blob([result], { type: 'audio/wav' });
+        }
 
-                worker.postMessage({
-                    channelData: channelData.map(ch => Array.from(ch)),
-                    sampleRate: sampleRate,
-                    numChannels: channelData.length,
-                    length: channelData[0].length
-                });
-            });
+        async function convertWavToMp3(wavBlob) {
+            const arrayBuffer = await wavBlob.arrayBuffer();
+            const wav = new Int16Array(arrayBuffer);
+            const mp3encoder = new lamejs.Mp3Encoder(1, 44100, 128);
+            const mp3Data = [];
+            let sampleBlockSize = 1152;
+            for (let i = 0; i < wav.length; i += sampleBlockSize) {
+                const sampleChunk = wav.subarray(i, i + sampleBlockSize);
+                const mp3buf = mp3encoder.encodeBuffer(sampleChunk);
+                if (mp3buf.length > 0) {
+                    mp3Data.push(new Int8Array(mp3buf));
+                }
+            }
+            const mp3buf = mp3encoder.flush();
+            if (mp3buf.length > 0) {
+                mp3Data.push(new Int8Array(mp3buf));
+            }
+            return new Blob(mp3Data, { type: 'audio/mp3' });
         }
     </script>
 </body>
