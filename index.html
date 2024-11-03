@@ -5,38 +5,123 @@
   <title>פיצול קובץ אודיו</title>
 </head>
 <body>
-  <h1>פיצול קובץ אודיו לחלקים של עד 2 מגה-בייט</h1>
+  <h1>פיצול קובץ אודיו למקטעים</h1>
   <input type="file" id="audioFile" accept="audio/*">
+  <label for="chunkSize">גודל מקטע (במגה-בייט):</label>
+  <input type="number" id="chunkSize" min="1" value="2">
+  <button id="splitButton">פצל קובץ</button>
   <div id="downloadLinks"></div>
 
   <script>
-    document.getElementById('audioFile').addEventListener('change', function(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      const MAX_CHUNK_SIZE = 2 * 1024 * 1024; // 2 מגה-בייט
-      const totalSize = file.size;
-      const numberOfChunks = Math.ceil(totalSize / MAX_CHUNK_SIZE);
-      const downloadLinksContainer = document.getElementById('downloadLinks');
-      downloadLinksContainer.innerHTML = ''; // נקה קישורים קודמים
-
-      for (let i = 0; i < numberOfChunks; i++) {
-        const start = i * MAX_CHUNK_SIZE;
-        const end = Math.min(start + MAX_CHUNK_SIZE, totalSize);
-        const chunk = file.slice(start, end);
-        const url = URL.createObjectURL(chunk);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${file.name}_part${i + 1}${getFileExtension(file.name)}`;
-        link.textContent = `הורד חלק ${i + 1}`;
-        downloadLinksContainer.appendChild(link);
-        downloadLinksContainer.appendChild(document.createElement('br'));
+    document.getElementById('splitButton').addEventListener('click', function() {
+      const file = document.getElementById('audioFile').files[0];
+      const chunkSizeMB = parseFloat(document.getElementById('chunkSize').value);
+      if (!file || isNaN(chunkSizeMB) || chunkSizeMB <= 0) {
+        alert('אנא בחר קובץ אודיו והזן גודל מקטע חוקי.');
+        return;
       }
+
+      const chunkSizeBytes = chunkSizeMB * 1024 * 1024; // המרה למגה-בייט
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const reader = new FileReader();
+
+      reader.onload = function(e) {
+        audioContext.decodeAudioData(e.target.result, function(buffer) {
+          const totalDuration = buffer.duration;
+          const totalSize = e.target.result.byteLength;
+          const numberOfChunks = Math.ceil(totalSize / chunkSizeBytes);
+          const chunkDuration = totalDuration / numberOfChunks;
+          const downloadLinksContainer = document.getElementById('downloadLinks');
+          downloadLinksContainer.innerHTML = ''; // נקה קישורים קודמים
+
+          for (let i = 0; i < numberOfChunks; i++) {
+            const startOffset = i * chunkDuration;
+            const endOffset = Math.min((i + 1) * chunkDuration, totalDuration);
+            const chunkBuffer = buffer.slice(startOffset, endOffset);
+
+            audioBufferToWav(chunkBuffer).then(wavBlob => {
+              const url = URL.createObjectURL(wavBlob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = `${file.name}_part${i + 1}.wav`;
+              link.textContent = `הורד חלק ${i + 1}`;
+              downloadLinksContainer.appendChild(link);
+              downloadLinksContainer.appendChild(document.createElement('br'));
+            });
+          }
+        });
+      };
+
+      reader.readAsArrayBuffer(file);
     });
 
-    function getFileExtension(filename) {
-      const dotIndex = filename.lastIndexOf('.');
-      return dotIndex !== -1 ? filename.substring(dotIndex) : '';
+    function audioBufferToWav(buffer) {
+      return new Promise(resolve => {
+        const numOfChan = buffer.numberOfChannels,
+              length = buffer.length * numOfChan * 2 + 44,
+              bufferArray = new ArrayBuffer(length),
+              view = new DataView(bufferArray),
+              channels = [],
+              sampleRate = buffer.sampleRate,
+              offset = 0,
+              pos = 0;
+
+        function setUint16(data) {
+          view.setUint16(pos, data, true);
+          pos += 2;
+        }
+
+        function setUint32(data) {
+          view.setUint32(pos, data, true);
+          pos += 4;
+        }
+
+        // RIFF identifier 'RIFF'
+        setUint32(0x46464952);
+        // file length minus RIFF identifier length and file description length
+        setUint32(length - 8);
+        // RIFF type 'WAVE'
+        setUint32(0x45564157);
+        // format chunk identifier 'fmt '
+        setUint32(0x20746d66);
+        // format chunk length
+        setUint32(16);
+        // sample format (raw)
+        setUint16(1);
+        // channel count
+        setUint16(numOfChan);
+        // sample rate
+        setUint32(sampleRate);
+        // byte rate (sample rate * block align)
+        setUint32(sampleRate * numOfChan * 2);
+        // block align (channel count * bytes per sample)
+        setUint16(numOfChan * 2);
+        // bits per sample
+        setUint16(16);
+        // data chunk identifier 'data'
+        setUint32(0x61746164);
+        // data chunk length
+        setUint32(length - pos - 4);
+
+        // write interleaved data
+        for (let i = 0; i < buffer.numberOfChannels; i++)
+          channels.push(buffer.getChannelData(i));
+
+        while (pos < length) {
+          for (let i = 0; i < numOfChan; i++) {
+            // clamp the sample
+            let sample = Math.max(-1, Math.min(1, channels[i][offset]));
+            // scale it to 16-bit integer
+            sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+            // write the 16-bit sample
+            view.setInt16(pos, sample, true);
+            pos += 2;
+          }
+          offset++;
+        }
+
+        resolve(new Blob([bufferArray], { type: 'audio/wav' }));
+      });
     }
   </script>
 </body>
