@@ -26,51 +26,64 @@
                 return;
             }
 
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const arrayBuffer = await fileInput.arrayBuffer();
-            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            console.log("קובץ אודיו נבחר:", fileInput.name);
+            console.log("מספר החלקים:", segments);
 
-            const segmentDuration = audioBuffer.duration / segments;
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const arrayBuffer = await fileInput.arrayBuffer();
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-            for (let i = 0; i < segments; i++) {
-                const start = i * segmentDuration;
-                const end = (i + 1) * segmentDuration;
+                console.log("משך האודיו:", audioBuffer.duration, "שניות");
+                const segmentDuration = audioBuffer.duration / segments;
+                console.log("משך כל חלק:", segmentDuration, "שניות");
 
-                const offlineContext = new OfflineAudioContext(
-                    audioBuffer.numberOfChannels,
-                    (end - start) * audioBuffer.sampleRate,
-                    audioBuffer.sampleRate
-                );
+                for (let i = 0; i < segments; i++) {
+                    const start = i * segmentDuration;
+                    const end = (i + 1) * segmentDuration;
+                    console.log(`פיצול חלק ${i + 1}: התחלה ב-${start} שניות, סיום ב-${end} שניות`);
 
-                const source = offlineContext.createBufferSource();
-                source.buffer = audioBuffer;
+                    const offlineContext = new OfflineAudioContext(
+                        audioBuffer.numberOfChannels,
+                        (end - start) * audioBuffer.sampleRate,
+                        audioBuffer.sampleRate
+                    );
 
-                source.connect(offlineContext.destination);
-                source.start(0, start, end - start);
+                    const source = offlineContext.createBufferSource();
+                    source.buffer = audioBuffer;
 
-                const renderedBuffer = await offlineContext.startRendering();
+                    source.connect(offlineContext.destination);
+                    source.start(0, start, end - start);
 
-                offlineContext.oncomplete = async (e) => {
-                    const audioBlob = await audioBufferToBlob(e.renderedBuffer);
-                    const url = URL.createObjectURL(audioBlob);
+                    offlineContext.oncomplete = async (e) => {
+                        console.log(`חלק ${i + 1} הסתיים בהצלחה.`);
+                        const audioBlob = await audioBufferToBlob(e.renderedBuffer);
+                        const url = URL.createObjectURL(audioBlob);
 
-                    const audioElement = document.createElement('audio');
-                    audioElement.controls = true;
-                    audioElement.src = url;
+                        const audioElement = document.createElement('audio');
+                        audioElement.controls = true;
+                        audioElement.src = url;
 
-                    const downloadLink = document.createElement('a');
-                    downloadLink.href = url;
-                    downloadLink.download = `audio_segment_${i + 1}.wav`;
-                    downloadLink.innerText = `הורד חלק ${i + 1}`;
+                        const downloadLink = document.createElement('a');
+                        downloadLink.href = url;
+                        downloadLink.download = `audio_segment_${i + 1}.wav`;
+                        downloadLink.innerText = `הורד חלק ${i + 1}`;
 
-                    resultsContainer.appendChild(audioElement);
-                    resultsContainer.appendChild(downloadLink);
-                    resultsContainer.appendChild(document.createElement('br'));
-                };
+                        resultsContainer.appendChild(audioElement);
+                        resultsContainer.appendChild(downloadLink);
+                        resultsContainer.appendChild(document.createElement('br'));
+                    };
+
+                    await offlineContext.startRendering();
+                }
+            } catch (error) {
+                console.error("שגיאה במהלך פיצול קובץ האודיו:", error);
+                alert("אירעה שגיאה במהלך פיצול קובץ האודיו. בדוק את המסוף לפרטים.");
             }
         }
 
         function audioBufferToBlob(buffer) {
+            console.log("התחלה של המרה ל-BLOB...");
             return new Promise((resolve) => {
                 const worker = new Worker(URL.createObjectURL(new Blob([`
                     onmessage = async function (e) {
@@ -108,6 +121,7 @@
                 `])));
 
                 worker.onmessage = function (e) {
+                    console.log("המרה ל-BLOB הסתיימה בהצלחה.");
                     resolve(e.data);
                     worker.terminate();
                 };
